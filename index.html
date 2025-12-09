@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alatan THIRA Interaktif - PKD Yan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chosen Palette: Brilliant Blues -->
+    <!-- Application Structure Plan: A tabbed SPA with multi-step wizards. This structure addresses user feedback for "more pages" by breaking each tool (Tab) into logical steps (Muka/Pages), implemented via JS-controlled "step-page" divs. Tab 1 (Risk Matrix) is a 3-step wizard: 1. Input Form, 2. Bubble Chart, 3. Data Table. Tab 2 (Gap Analysis) is a 3-step wizard: 1. Input Form, 2. Data Table, 3. Bar Chart. This provides a guided, user-friendly experience. -->
+    <!-- Visualization & Content Choices: 1. Risk Matrix: (Source: THIRA Step 1) -> Goal: Analyze/Relationships -> Viz: Bubble Chart (Chart.js/Canvas) + HTML Table -> Interaction: User form input (Step 1) dynamically populates the chart (Step 2) and table (Step 3). 2. Gap Analysis: (Source: THIRA Step 4) -> Goal: Compare -> Viz: Grouped Bar Chart (Chart.js/Canvas) + HTML Table -> Interaction: User form input (Step 1) dynamically populates the table (Step 2) and chart (Step 3). All charts use required label/tooltip logic. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+        /* Tab Styles */
+        .tab-btn {
+            padding: 0.75rem 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 4px solid transparent;
+        }
+        .tab-btn.active {
+            color: #0077B6; /* Primary Text */
+            border-bottom-color: #0077B6;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Stepper Styles Baharu */
+        .step-nav-btn {
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            color: #6b7280; /* gray-500 */
+        }
+        .step-nav-btn.active {
+            color: #0077B6; /* Primary Text */
+            border-bottom-color: #0077B6;
+            font-weight: 600;
+        }
+        .step-page {
+            display: none;
+        }
+        .step-page.active {
+            display: block;
+        }
+        
+        /* Gaya Cetakan Baharu */
+        @media print {
+            /* Sembunyikan elemen yang tidak mahu dicetak */
+            .no-print {
+                display: none !important;
+            }
+            /* Tunjukkan semua kandungan tab semasa mencetak */
+            .tab-content {
+                display: block !important;
+            }
+            /* Baharu: Pastikan semua langkah dipaparkan semasa cetak */
+            .step-page {
+                display: block !important;
+                margin-top: 40px; /* Tambah ruang antara langkah semasa cetak */
+            }
+            /* Tetapan badan untuk cetakan */
+            body {
+                background-color: white !important;
+                color: black !important;
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+            }
+            /* Pastikan kad kandungan tidak terpotong */
+            .bg-white {
+                box-shadow: none !important;
+                border: 1px solid #ccc;
+                margin-bottom: 20px;
+            }
+            /* Watermark */
+            body::after {
+                content: "Pejabat Kesihatan Daerah Yan";
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) rotate(-45deg);
+                font-size: 60pt; /* Saiz watermark */
+                color: rgba(0, 0, 0, 0.08); /* Pudar */
+                font-weight: bold;
+                pointer-events: none;
+                z-index: 9999;
+                opacity: 1;
+                width: 100vw;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body class="font-sans" style="color: #03045E; background-color: #CAF0F8;">
+
+    <!-- Palette Colors: 
+        Bg: #CAF0F8 (Light Blue)
+        Bg-Card: #FFFFFF (White)
+        Primary Text: #0077B6 (Dark Blue)
+        Accent: #00B4D8 (Bright Blue)
+        Shadow: #ADE8F4 (Lighter Blue)
+    -->
+
+    <!-- Header -->
+    <header class="bg-white shadow-md no-print" style="background-color: #FFFFFF; box-shadow: 0 4px 12px 0 #ADE8F4;">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="text-center flex-1">
+                <h1 class="text-2xl md:text-3xl font-bold text-center" style="color: #0077B6;">Alatan Interaktif THIRA PKD Yan</h1>
+                <p class="text-center text-lg" style="color: #00B4D8;">Alat Pemarkahan & Senarai Semak</p>
+            </div>
+            <button id="print-btn" class="font-semibold text-white px-4 py-2 rounded-lg ml-4" style="background-color: #0077B6; hover:background-color: #00B4D8;">
+                <span class="mr-2">🖨️</span>Cetak
+            </button>
+        </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="bg-white shadow-sm no-print" style="background-color: #FFFFFF;">
+        <div class="container mx-auto flex justify-center">
+            <button id="tab-btn-1" class="tab-btn active" data-tab="1">Matriks Risiko (Langkah 1)</button>
+            <button id="tab-btn-2" class="tab-btn" data-tab="2">Analisis Jurang (Langkah 4)</button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container mx-auto p-4 md:p-8">
+
+        <!-- Tab 1: Matriks Pemarkahan Risiko -->
+        <div id="tab-content-1" class="tab-content active">
+            <div class="bg-white rounded-lg shadow-lg p-6 md:p-8" style="box-shadow: 0 10px 25px -5px #ADE8F4;">
+                <h2 class="text-3xl font-bold mb-4" style="color: #0077B6;">Alat 1: Matriks Pemarkahan Risiko</h2>
+
+                <!-- Stepper Nav (Tab 1) -->
+                <nav class="flex justify-center border-b no-print mb-6">
+                    <button class="step-nav-btn active" data-tab="1" data-step="1">Muka 1: Masukkan Data</button>
+                    <button class="step-nav-btn" data-tab="1" data-step="2">Muka 2: Lihat Matriks</button>
+                    <button class="step-nav-btn" data-tab="1" data-step="3">Muka 3: Lihat Jadual</button>
+                </nav>
+
+                <!-- Step 1-1: Form -->
+                <div id="step-page-1-1" class="step-page active">
+                    <h3 class="text-2xl font-semibold mb-4 text-center" style="color: #0077B6;">Muka 1: Masukkan Data Ancaman</h3>
+                    <p class="text-lg mb-6 text-center">Gunakan borang ini untuk menambah ancaman dan memberi skor.</p>
+                    <form id="threat-form" class="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 rounded-lg shadow-inner no-print" style="background-color: #CAF0F8;">
+                        <h3 class="text-xl font-semibold md:col-span-2" style="color: #0077B6;">Tambah Ancaman Baharu</h3>
+                        <div>
+                            <label for="threat-name" class="block font-semibold mb-1">Nama Ancaman</label>
+                            <input type="text" id="threat-name" class="w-full p-2 border rounded" placeholder="Cth: Banjir Kilat Sg. Yan" required>
+                        </div>
+                        <div>
+                            <label for="threat-likelihood" class="block font-semibold mb-1">Kebarangkalian (1-5)</label>
+                            <input type="number" id="threat-likelihood" class="w-full p-2 border rounded" min="1" max="5" step="0.1" placeholder="Cth: 4.2" required>
+                        </div>
+                        <div>
+                            <label for="threat-impact-health" class="block font-semibold mb-1">Kesan Kesihatan (1-5)</label>
+                            <input type="number" id="threat-impact-health" class="w-full p-2 border rounded" min="1" max="5" step="0.1" placeholder="Cth: 3.5" required>
+                        </div>
+                        <div>
+                            <label for="threat-impact-infra" class="block font-semibold mb-1">Kesan Infrastruktur/Ekonomi (1-5)</label>
+                            <input type="number" id="threat-impact-infra" class="w-full p-2 border rounded" min="1" max="5" step="0.1" placeholder="Cth: 4.0" required>
+                        </div>
+                        <div class="md:col-span-2 text-right space-x-2">
+                            <button type="button" id="reset-threats-btn" class="font-semibold text-gray-700 bg-gray-200 px-6 py-2 rounded-lg hover:bg-gray-300">Padam Data</button>
+                            <button type="submit" class="font-semibold text-white px-6 py-2 rounded-lg" style="background-color: #0077B6; hover:background-color: #00B4D8;">Tambah ke Matriks</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Step 1-2: Chart -->
+                <div id="step-page-1-2" class="step-page">
+                    <h3 class="text-2xl font-semibold mb-4 text-center" style="color: #0077B6;">Muka 2: Matriks Risiko (Real-time)</h3>
+                    <div class="chart-container">
+                        <canvas id="riskMatrixChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Step 1-3: Table -->
+                <div id="step-page-1-3" class="step-page">
+                    <h3 class="text-2xl font-semibold mb-4 text-center" style="color: #0077B6;">Muka 3: Senarai Ancaman Diutamakan</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full bg-white">
+                            <thead class="bg-gray-200" style="color: #0077B6;">
+                                <tr>
+                                    <th class="py-2 px-4 text-left">Ancaman</th>
+                                    <th class="py-2 px-4 text-center">Kebarangkalian</th>
+                                    <th class="py-2 px-4 text-center">Purata Kesan</th>
+                                    <th class="py-2 px-4 text-center">SKOR AKHIR</th>
+                                </tr>
+                            </thead>
+                            <tbody id="threat-table-body">
+                                <!-- Data akan diisi oleh JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Analisis Jurang Sumber -->
+        <div id="tab-content-2" class="tab-content">
+            <div class="bg-white rounded-lg shadow-lg p-6 md:p-8" style="box-shadow: 0 10px 25px -5px #ADE8F4;">
+                <h2 class="text-3xl font-bold mb-4" style="color: #0077B6;">Alat 2: Senarai Semak & Analisis Jurang Sumber</h2>
+
+                <!-- Stepper Nav (Tab 2) -->
+                <nav class="flex justify-center border-b no-print mb-6">
+                    <button class="step-nav-btn active" data-tab="2" data-step="1">Muka 1: Masukkan Data</button>
+                    <button class="step-nav-btn" data-tab="2" data-step="2">Muka 2: Lihat Jadual</button>
+                    <button class="step-nav-btn" data-tab="2" data-step="3">Muka 3: Lihat Carta</button>
+                </nav>
+
+                <!-- Step 2-1: Form -->
+                <div id="step-page-2-1" class="step-page active">
+                    <h3 class="text-2xl font-semibold mb-4 text-center" style="color: #0077B6;">Muka 1: Masukkan Data Sumber</h3>
+                    <p class="text-lg mb-6 text-center">Gunakan borang ini untuk Langkah 4. Masukkan sumber yang "Diperlukan" dan "Sedia Ada".</p>
+                    <form id="resource-form" class="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 rounded-lg shadow-inner no-print" style="background-color: #CAF0F8;">
+                        <h3 class="text-xl font-semibold md:col-span-3" style="color: #0077B6;">Tambah Sumber ke Senarai Semak</h3>
+                        <div>
+                            <label for="resource-name" class="block font-semibold mb-1">Nama Sumber</label>
+                            <input type="text" id="resource-name" class="w-full p-2 border rounded" placeholder="Cth: Set PPE" required>
+                        </div>
+                        <div>
+                            <label for="resource-needed" class="block font-semibold mb-1">Jumlah Diperlukan</label>
+                            <input type="number" id="resource-needed" class="w-full p-2 border rounded" placeholder="Cth: 500" required>
+                        </div>
+                        <div>
+                            <label for="resource-available" class="block font-semibold mb-1">Jumlah Sedia Ada</label>
+                            <input type="number" id="resource-available" class="w-full p-2 border rounded" placeholder="Cth: 100" required>
+                        </div>
+                        <div class="md:col-span-3 text-right space-x-2">
+                            <button type="button" id="reset-resources-btn" class="font-semibold text-gray-700 bg-gray-200 px-6 py-2 rounded-lg hover:bg-gray-300">Padam Data</button>
+                            <button type="submit" class="font-semibold text-white px-6 py-2 rounded-lg" style="background-color: #0077B6; hover:background-color: #00B4D8;">Tambah ke Senarai</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Step 2-2: Table -->
+                <div id="step-page-2-2" class="step-page">
+                    <h3 class="text-2xl font-semibold mb-4 text-center" style="color: #0077B6;">Muka 2: Senarai Semak Sumber (Real-time)</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full bg-white">
+                            <thead class="bg-gray-200" style="color: #0077B6;">
+                                <tr>
+                                    <th class="py-2 px-4 text-left">Sumber</th>
+                                    <th class="py-2 px-4 text-center">Diperlukan</th>
+                                    <th class="py-2 px-4 text-center">Sedia Ada</th>
+                                    <th class="py-2 px-4 text-center">JURANG</th>
+                                    <th class="py-2 px-4 text-center">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resource-table-body">
+                                <!-- Data akan diisi oleh JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Step 2-3: Chart -->
+                <div id="step-page-2-3" class="step-page">
+                    <h3 class="text-2xl font-semibold mb-4 text-center" style="color: #0077B6;">Muka 3: Visualisasi Jurang Sumber</h3>
+                    <div class="chart-container">
+                        <canvas id="gapAnalysisChart"></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center p-6 mt-8 no-print">
+        <p class="text-sm" style="color: #0077B6;">Hakcipta Pejabat Kesihatan Daerah Yan &copy; 2025</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- Logik Tab ---
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const tabId = button.getAttribute('data-tab');
+
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+
+                    tabContents.forEach(content => {
+                        if (content.id === `tab-content-${tabId}`) {
+                            content.classList.add('active');
+                        } else {
+                            content.classList.remove('active');
+                        }
+                    });
+                });
+            });
+            
+            // --- Logik Stepper Baharu ---
+            const stepButtons = document.querySelectorAll('.step-nav-btn');
+            
+            stepButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const tabId = button.getAttribute('data-tab');
+                    const stepId = button.getAttribute('data-step');
+
+                    // Hanya kendalikan butang dalam tab yang sedang aktif
+                    if (document.getElementById(`tab-content-${tabId}`).classList.contains('active')) {
+                        
+                        // 1. Kemas kini butang stepper
+                        document.querySelectorAll(`.step-nav-btn[data-tab="${tabId}"]`).forEach(btn => {
+                            btn.classList.remove('active');
+                        });
+                        button.classList.add('active');
+
+                        // 2. Tunjuk/Sembunyi halaman langkah
+                        document.querySelectorAll(`.step-page[id^="step-page-${tabId}-"]`).forEach(page => {
+                            page.classList.remove('active');
+                        });
+                        document.getElementById(`step-page-${tabId}-${stepId}`).classList.add('active');
+                    }
+                });
+            });
+
+
+            // --- Logik Butang Cetak Baharu ---
+            const printButton = document.getElementById('print-btn');
+            printButton.addEventListener('click', () => {
+                window.print();
+            });
+
+            // --- Logik Umum Tooltip Chart.js ---
+            const tooltipCallbackTitle = function(tooltipItems) {
+                const item = tooltipItems[0];
+                let label = item.chart.data.labels[item.dataIndex];
+                if (Array.isArray(label)) {
+                    return label.join(' ');
+                } else {
+                    return label;
+                }
+            };
+
+            // --- Logik Alat 1: Matriks Risiko ---
+            const threatForm = document.getElementById('threat-form');
+            const threatTableBody = document.getElementById('threat-table-body');
+            const resetThreatsBtn = document.getElementById('reset-threats-btn'); // Baris baharu
+            let riskMatrixChart;
+            let threats = [];
+
+            function initializeRiskMatrixChart() {
+                const ctx = document.getElementById('riskMatrixChart').getContext('2d');
+                riskMatrixChart = new Chart(ctx, {
+                    type: 'bubble',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Ancaman',
+                            data: [],
+                            backgroundColor: 'rgba(0, 180, 216, 0.6)',
+                            borderColor: 'rgba(0, 119, 182, 1)',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                title: { display: true, text: 'Kebarangkalian ➔', font: { size: 14, weight: 'bold' }, color: '#0077B6' },
+                                min: 0,
+                                max: 5,
+                                grid: { color: '#ADE8F4' }
+                            },
+                            y: {
+                                title: { display: true, text: 'Purata Kesan ➔', font: { size: 14, weight: 'bold' }, color: '#0077B6' },
+                                min: 0,
+                                max: 5,
+                                grid: { color: '#ADE8F4' }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(tooltipItems) {
+                                        const item = tooltipItems[0];
+                                        let label = item.chart.data.labels[item.dataIndex];
+                                        if (Array.isArray(label)) {
+                                          return label.join(' ');
+                                        } else {
+                                          return label;
+                                        }
+                                    },
+                                    label: function(context) {
+                                        const raw = context.raw;
+                                        return ` (Kebarangkalian: ${raw.x}, Kesan: ${raw.y})`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            function updateThreatTable() {
+                threatTableBody.innerHTML = '';
+                
+                // Isih ancaman berdasarkan SKOR AKHIR, tertinggi dahulu
+                threats.sort((a, b) => b.totalScore - a.totalScore);
+                
+                riskMatrixChart.data.labels = [];
+                const chartData = [];
+
+                threats.forEach(threat => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="py-2 px-4 border-b">${threat.name}</td>
+                        <td class="py-2 px-4 border-b text-center">${threat.likelihood.toFixed(1)}</td>
+                        <td class="py-2 px-4 border-b text-center">${threat.avgImpact.toFixed(1)}</td>
+                        <td class="py-2 px-4 border-b text-center font-bold" style="color: #0077B6;">${threat.totalScore.toFixed(1)}</td>
+                    `;
+                    threatTableBody.appendChild(row);
+                    
+                    // Sediakan data untuk carta
+                    let label = threat.name;
+                    if (label.length > 16) {
+                        label = [label.substring(0, 16) + '...']; 
+                    }
+                    riskMatrixChart.data.labels.push(label);
+                    chartData.push({
+                        x: threat.likelihood,
+                        y: threat.avgImpact,
+                        r: threat.totalScore * 2 // Saiz gelembung berdasarkan skor
+                    });
+                });
+                
+                riskMatrixChart.data.datasets[0].data = chartData;
+                riskMatrixChart.update();
+            }
+
+            threatForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = document.getElementById('threat-name').value;
+                const likelihood = parseFloat(document.getElementById('threat-likelihood').value);
+                const impactHealth = parseFloat(document.getElementById('threat-impact-health').value);
+                const impactInfra = parseFloat(document.getElementById('threat-impact-infra').value);
+                
+                const avgImpact = (impactHealth + impactInfra) / 2;
+                const totalScore = likelihood + avgImpact;
+
+                threats.push({ name, likelihood, avgImpact, totalScore });
+                updateThreatTable();
+                threatForm.reset();
+            });
+
+            // Listener baharu untuk butang reset ancaman
+            resetThreatsBtn.addEventListener('click', () => {
+                threats = [];
+                updateThreatTable(); // Ini akan mengosongkan jadual dan carta
+            });
+
+            // --- Logik Alat 2: Analisis Jurang ---
+            const resourceForm = document.getElementById('resource-form');
+            const resourceTableBody = document.getElementById('resource-table-body');
+            const resetResourcesBtn = document.getElementById('reset-resources-btn'); // Baris baharu
+            let gapAnalysisChart;
+            let resources = [];
+
+            function initializeGapChart() {
+                const ctx = document.getElementById('gapAnalysisChart').getContext('2d');
+                gapAnalysisChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            {
+                                label: 'Sedia Ada',
+                                data: [],
+                                backgroundColor: 'rgba(0, 119, 182, 0.8)', // Dark Blue
+                            },
+                            {
+                                label: 'Diperlukan',
+                                data: [],
+                                backgroundColor: 'rgba(173, 232, 244, 0.8)', // Light Blue
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: '#ADE8F4' } },
+                            x: { grid: { display: false } }
+                        },
+                        plugins: {
+                            legend: { position: 'top' },
+                            tooltip: {
+                                callbacks: {
+                                    title: tooltipCallbackTitle
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            function processLabel(label) {
+                if (label.length > 16) {
+                    const words = label.split(' ');
+                    let lines = [];
+                    let currentLine = '';
+                    for (const word of words) {
+                        if ((currentLine + word).length > 16) {
+                            lines.push(currentLine.trim());
+                            currentLine = word + ' ';
+                        } else {
+                            currentLine += word + ' ';
+                        }
+                    }
+                    lines.push(currentLine.trim());
+                    return lines;
+                }
+                return label;
+            }
+
+            function updateResourceTable() {
+                resourceTableBody.innerHTML = '';
+                
+                // Sediakan data untuk carta
+                const chartLabels = [];
+                const chartDataNeeded = [];
+                const chartDataAvailable = [];
+
+                resources.forEach(res => {
+                    const gap = res.needed - res.available;
+                    let statusClass = '';
+                    let statusText = '';
+
+                    if (gap > 0) {
+                        statusClass = 'text-red-600 font-bold';
+                        statusText = `Kurang ${gap}`;
+                    } else {
+                        statusClass = 'text-green-600 font-bold';
+                        statusText = `Mencukupi (${Math.abs(gap)} lebihan)`;
+                    }
+
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="py-2 px-4 border-b">${res.name}</td>
+                        <td class="py-2 px-4 border-b text-center">${res.needed}</td>
+                        <td class="py-2 px-4 border-b text-center">${res.available}</td>
+                        <td class="py-2 px-4 border-b text-center ${statusClass}">${gap}</td>
+                        <td class="py-2 px-4 border-b text-center ${statusClass}">${statusText}</td>
+                    `;
+                    resourceTableBody.appendChild(row);
+
+                    chartLabels.push(processLabel(res.name));
+                    chartDataNeeded.push(res.needed);
+                    chartDataAvailable.push(res.available);
+                });
+
+                gapAnalysisChart.data.labels = chartLabels;
+                gapAnalysisChart.data.datasets[0].data = chartDataAvailable;
+                gapAnalysisChart.data.datasets[1].data = chartDataNeeded;
+                gapAnalysisChart.update();
+            }
+
+            resourceForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = document.getElementById('resource-name').value;
+                const needed = parseInt(document.getElementById('resource-needed').value);
+                const available = parseInt(document.getElementById('resource-available').value);
+
+                resources.push({ name, needed, available });
+                updateResourceTable();
+                resourceForm.reset();
+            });
+
+            // Listener baharu untuk butang reset sumber
+            resetResourcesBtn.addEventListener('click', () => {
+                resources = [];
+                updateResourceTable(); // Ini akan mengosongkan jadual dan carta
+            });
+
+            // Inisialisasi kedua-dua carta
+            initializeRiskMatrixChart();
+            initializeGapChart();
+        });
+    </script>
+</body>
+</html>
