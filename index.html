@@ -7,9 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Chosen Palette: Brilliant Blues -->
-    <!-- Application Structure Plan: A tabbed SPA with multi-step wizards. This structure addresses user feedback for "more pages" by breaking each tool (Tab) into logical steps (Muka/Pages), implemented via JS-controlled "step-page" divs. Tab 1 (Risk Matrix) is a 3-step wizard: 1. Input Form, 2. Bubble Chart, 3. Data Table. Tab 2 (Gap Analysis) is a 3-step wizard: 1. Input Form, 2. Data Table, 3. Bar Chart. This provides a guided, user-friendly experience. -->
-    <!-- Visualization & Content Choices: 1. Risk Matrix: (Source: THIRA Step 1) -> Goal: Analyze/Relationships -> Viz: Bubble Chart (Chart.js/Canvas) + HTML Table -> Interaction: User form input (Step 1) dynamically populates the chart (Step 2) and table (Step 3). 2. Gap Analysis: (Source: THIRA Step 4) -> Goal: Compare -> Viz: Grouped Bar Chart (Chart.js/Canvas) + HTML Table -> Interaction: User form input (Step 1) dynamically populates the table (Step 2) and chart (Step 3). All charts use required label/tooltip logic. -->
-    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
     <style>
         .chart-container {
             position: relative;
@@ -292,8 +289,147 @@
         <p class="text-sm" style="color: #0077B6;">Hakcipta Pejabat Kesihatan Daerah Yan &copy; 2025</p>
     </footer>
 
-    <script>
+    <script type="module">
+        // --- FIREBASE IMPORTS (PENTING UNTUK SIMPANAN KEKAL) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Pembolehubah Global untuk Firebase dan Data
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        let threats = []; // Data Ancaman (Matriks Risiko)
+        let resources = []; // Data Sumber (Analisis Jurang)
+        let riskMatrixChart;
+        let gapAnalysisChart;
+
         document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- FIREBASE INITIALIZATION AND AUTHENTICATION ---
+            if (Object.keys(firebaseConfig).length > 0) {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // 1. Authentication Listener
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        console.log("User authenticated. User ID:", userId);
+                        // Mulakan pemuatan data kekal sebaik sahaja pengesahan selesai
+                        loadPersistentData(); 
+                    } else {
+                        try {
+                            // Cuba sign in dengan token, atau secara tanpa nama
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Firebase Auth failed:", error);
+                            // Fallback: Teruskan tanpa simpanan kekal jika pengesahan gagal
+                            isAuthReady = true;
+                            // Cuma jalankan carta init jika tiada auth (fallback)
+                            initializeRiskMatrixChart();
+                            initializeGapChart();
+                        }
+                    }
+                });
+            } else {
+                 // Fallback jika tiada config Firebase disediakan
+                isAuthReady = true;
+                // Cuma jalankan carta init jika tiada auth
+                initializeRiskMatrixChart();
+                initializeGapChart();
+            }
+
+            // --- Persistent Data Management (Firestore) ---
+
+            // Helpers untuk mendapatkan rujukan dokumen Firestore
+            function getThreatsDocRef(uid) {
+                // Path: /artifacts/{appId}/users/{userId}/thira_threats/current_session
+                return doc(db, 'artifacts', appId, 'users', uid, 'thira_threats', 'current_session');
+            }
+            function getResourcesDocRef(uid) {
+                // Path: /artifacts/{appId}/users/{userId}/thira_resources/current_session
+                return doc(db, 'artifacts', appId, 'users', uid, 'thira_resources', 'current_session');
+            }
+
+            // FUNGSI SIMPAN (SAVE)
+            async function saveThreatsToFirestore() {
+                if (!isAuthReady || !userId || !db) return;
+                try {
+                    // Simpan keseluruhan array threats
+                    await setDoc(getThreatsDocRef(userId), { data: threats });
+                } catch (error) {
+                    console.error("Error saving threats to Firestore (cubaan semula):", error);
+                    // Implement exponential backoff for retries if needed in production
+                }
+            }
+            
+            async function saveResourcesToFirestore() {
+                if (!isAuthReady || !userId || !db) return;
+                try {
+                    // Simpan keseluruhan array resources
+                    await setDoc(getResourcesDocRef(userId), { data: resources });
+                } catch (error) {
+                    console.error("Error saving resources to Firestore (cubaan semula):", error);
+                    // Implement exponential backoff for retries if needed in production
+                }
+            }
+
+            // FUNGSI MUAT (LOAD) - Menggunakan onSnapshot untuk data real-time
+            function loadPersistentData() {
+                if (!isAuthReady || !userId || !db) return;
+
+                // 1. Listener untuk Data Ancaman (Tab 1)
+                onSnapshot(getThreatsDocRef(userId), (doc) => {
+                    if (doc.exists()) {
+                        const data = doc.data().data;
+                        if (Array.isArray(data)) {
+                            threats = data;
+                            console.log(`Threats data loaded from Firestore (${threats.length} items).`);
+                            updateThreatTableUI(); // Kemas kini UI dengan data yang dimuatkan
+                        }
+                    } else {
+                        console.log("Tiada data ancaman sedia ada ditemui. Memulakan sesi baharu.");
+                        updateThreatTableUI(); // Kosongkan UI jika tiada data
+                    }
+                }, (error) => {
+                    console.error("Error listening to threats data:", error);
+                });
+                
+                // 2. Listener untuk Data Sumber (Tab 2)
+                onSnapshot(getResourcesDocRef(userId), (doc) => {
+                    if (doc.exists()) {
+                        const data = doc.data().data;
+                        if (Array.isArray(data)) {
+                            resources = data;
+                            console.log(`Resources data loaded from Firestore (${resources.length} items).`);
+                            updateResourceTableUI(); // Kemas kini UI dengan data yang dimuatkan
+                        }
+                    } else {
+                        console.log("Tiada data sumber sedia ada ditemui. Memulakan sesi baharu.");
+                        updateResourceTableUI(); // Kosongkan UI jika tiada data
+                    }
+                }, (error) => {
+                    console.error("Error listening to resources data:", error);
+                });
+
+                // Inisialisasi carta di sini selepas auth/listeners
+                initializeRiskMatrixChart();
+                initializeGapChart();
+            }
             
             // --- Logik Tab ---
             const tabButtons = document.querySelectorAll('.tab-btn');
@@ -363,9 +499,7 @@
             // --- Logik Alat 1: Matriks Risiko ---
             const threatForm = document.getElementById('threat-form');
             const threatTableBody = document.getElementById('threat-table-body');
-            const resetThreatsBtn = document.getElementById('reset-threats-btn'); // Baris baharu
-            let riskMatrixChart;
-            let threats = [];
+            const resetThreatsBtn = document.getElementById('reset-threats-btn');
 
             function initializeRiskMatrixChart() {
                 const ctx = document.getElementById('riskMatrixChart').getContext('2d');
@@ -422,7 +556,8 @@
                 });
             }
 
-            function updateThreatTable() {
+            // FUNGSI UNTUK MENGEMAS KINI UI TAB 1 SAHAJA
+            function updateThreatTableUI() {
                 threatTableBody.innerHTML = '';
                 
                 // Isih ancaman berdasarkan SKOR AKHIR, tertinggi dahulu
@@ -458,6 +593,12 @@
                 riskMatrixChart.update();
             }
 
+            // FUNGSI UNTUK MENGEMAS KINI DATA LOKAL DAN TRIGGE SIMPANAN
+            function handleThreatsUpdate() {
+                updateThreatTableUI();
+                saveThreatsToFirestore(); // Trigger save to Firestore
+            }
+
             threatForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const name = document.getElementById('threat-name').value;
@@ -466,25 +607,31 @@
                 const impactInfra = parseFloat(document.getElementById('threat-impact-infra').value);
                 
                 const avgImpact = (impactHealth + impactInfra) / 2;
-                const totalScore = likelihood + avgImpact;
+                const totalScore = likelihood * avgImpact; // Changed to multiplication for total risk score
 
-                threats.push({ name, likelihood, avgImpact, totalScore });
-                updateThreatTable();
+                // Tambah data ancaman ke array lokal
+                threats.push({ 
+                    name, 
+                    likelihood, 
+                    impactHealth, 
+                    impactInfra, 
+                    avgImpact, 
+                    totalScore // Simpan semua data untuk keutuhan
+                });
+                handleThreatsUpdate();
                 threatForm.reset();
             });
 
-            // Listener baharu untuk butang reset ancaman
+            // Listener untuk butang reset ancaman
             resetThreatsBtn.addEventListener('click', () => {
                 threats = [];
-                updateThreatTable(); // Ini akan mengosongkan jadual dan carta
+                handleThreatsUpdate(); // Ini akan mengosongkan jadual, carta, dan data Firestore
             });
 
             // --- Logik Alat 2: Analisis Jurang ---
             const resourceForm = document.getElementById('resource-form');
             const resourceTableBody = document.getElementById('resource-table-body');
-            const resetResourcesBtn = document.getElementById('reset-resources-btn'); // Baris baharu
-            let gapAnalysisChart;
-            let resources = [];
+            const resetResourcesBtn = document.getElementById('reset-resources-btn');
 
             function initializeGapChart() {
                 const ctx = document.getElementById('gapAnalysisChart').getContext('2d');
@@ -543,7 +690,8 @@
                 return label;
             }
 
-            function updateResourceTable() {
+            // FUNGSI UNTUK MENGEMAS KINI UI TAB 2 SAHAJA
+            function updateResourceTableUI() {
                 resourceTableBody.innerHTML = '';
                 
                 // Sediakan data untuk carta
@@ -585,26 +733,31 @@
                 gapAnalysisChart.update();
             }
 
+            // FUNGSI UNTUK MENGEMAS KINI DATA LOKAL DAN TRIGGER SIMPANAN
+            function handleResourcesUpdate() {
+                updateResourceTableUI();
+                saveResourcesToFirestore(); // Trigger save to Firestore
+            }
+
             resourceForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const name = document.getElementById('resource-name').value;
                 const needed = parseInt(document.getElementById('resource-needed').value);
                 const available = parseInt(document.getElementById('resource-available').value);
 
+                // Tambah data sumber ke array lokal
                 resources.push({ name, needed, available });
-                updateResourceTable();
+                handleResourcesUpdate();
                 resourceForm.reset();
             });
 
-            // Listener baharu untuk butang reset sumber
+            // Listener untuk butang reset sumber
             resetResourcesBtn.addEventListener('click', () => {
                 resources = [];
-                updateResourceTable(); // Ini akan mengosongkan jadual dan carta
+                handleResourcesUpdate(); // Ini akan mengosongkan jadual, carta, dan data Firestore
             });
-
-            // Inisialisasi kedua-dua carta
-            initializeRiskMatrixChart();
-            initializeGapChart();
+            
+            // Inisialisasi tidak lagi diperlukan di sini kerana ia dipanggil dalam loadPersistentData atau fallback
         });
     </script>
 </body>
