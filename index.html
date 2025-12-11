@@ -311,15 +311,122 @@
         let riskMatrixChart;
         let gapAnalysisChart;
 
+        // --- FUNGSI CHART INIALIZATION (Mesti diinisialisasi sekali) ---
+        function initializeRiskMatrixChart() {
+            const ctx = document.getElementById('riskMatrixChart').getContext('2d');
+            riskMatrixChart = new Chart(ctx, {
+                type: 'bubble',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Ancaman',
+                        data: [],
+                        backgroundColor: 'rgba(0, 180, 216, 0.6)',
+                        borderColor: 'rgba(0, 119, 182, 1)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Kebarangkalian ➔', font: { size: 14, weight: 'bold' }, color: '#0077B6' },
+                            min: 0,
+                            max: 5,
+                            grid: { color: '#ADE8F4' }
+                        },
+                        y: {
+                            title: { display: true, text: 'Purata Kesan ➔', font: { size: 14, weight: 'bold' }, color: '#0077B6' },
+                            min: 0,
+                            max: 5,
+                            grid: { color: '#ADE8F4' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    const item = tooltipItems[0];
+                                    let label = item.chart.data.labels[item.dataIndex];
+                                    if (Array.isArray(label)) {
+                                      return label.join(' ');
+                                    } else {
+                                      return label;
+                                    }
+                                },
+                                label: function(context) {
+                                    const raw = context.raw;
+                                    return ` (Kebarangkalian: ${raw.x}, Kesan: ${raw.y})`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function initializeGapChart() {
+            const ctx = document.getElementById('gapAnalysisChart').getContext('2d');
+            gapAnalysisChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Sedia Ada',
+                            data: [],
+                            backgroundColor: 'rgba(0, 119, 182, 0.8)', // Dark Blue
+                        },
+                        {
+                            label: 'Diperlukan',
+                            data: [],
+                            backgroundColor: 'rgba(173, 232, 244, 0.8)', // Light Blue
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#ADE8F4' } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    const item = tooltipItems[0];
+                                    let label = item.chart.data.labels[item.dataIndex];
+                                    if (Array.isArray(label)) {
+                                        return label.join(' ');
+                                    } else {
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             
-            // --- FIREBASE INITIALIZATION AND AUTHENTICATION ---
+            // --- 1. INISIALISASI CARTA (Dijalankan sekali di awal) ---
+            // Ini memastikan objek chart wujud sebelum user cuba tukar ke view carta
+            initializeRiskMatrixChart();
+            initializeGapChart();
+            
+            // --- 2. FIREBASE INITIALIZATION AND AUTHENTICATION ---
             if (Object.keys(firebaseConfig).length > 0) {
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
 
-                // 1. Authentication Listener
+                // Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
@@ -339,21 +446,17 @@
                             console.error("Firebase Auth failed:", error);
                             // Fallback: Teruskan tanpa simpanan kekal jika pengesahan gagal
                             isAuthReady = true;
-                            // Cuma jalankan carta init jika tiada auth (fallback)
-                            initializeRiskMatrixChart();
-                            initializeGapChart();
+                            // Carta sudah diinisialisasi di luar.
                         }
                     }
                 });
             } else {
                  // Fallback jika tiada config Firebase disediakan
                 isAuthReady = true;
-                // Cuma jalankan carta init jika tiada auth
-                initializeRiskMatrixChart();
-                initializeGapChart();
+                // Carta sudah diinisialisasi di luar.
             }
 
-            // --- Persistent Data Management (Firestore) ---
+            // --- 3. Persistent Data Management (Firestore) ---
 
             // Helpers untuk mendapatkan rujukan dokumen Firestore
             function getThreatsDocRef(uid) {
@@ -425,13 +528,9 @@
                 }, (error) => {
                     console.error("Error listening to resources data:", error);
                 });
-
-                // Inisialisasi carta di sini selepas auth/listeners
-                initializeRiskMatrixChart();
-                initializeGapChart();
             }
             
-            // --- Logik Tab ---
+            // --- 4. Logik Tab ---
             const tabButtons = document.querySelectorAll('.tab-btn');
             const tabContents = document.querySelectorAll('.tab-content');
 
@@ -452,7 +551,7 @@
                 });
             });
             
-            // --- Logik Stepper Baharu ---
+            // --- 5. Logik Stepper Baharu ---
             const stepButtons = document.querySelectorAll('.step-nav-btn');
             
             stepButtons.forEach(button => {
@@ -496,65 +595,10 @@
                 }
             };
 
-            // --- Logik Alat 1: Matriks Risiko ---
+            // --- 6. Logik Alat 1: Matriks Risiko ---
             const threatForm = document.getElementById('threat-form');
             const threatTableBody = document.getElementById('threat-table-body');
             const resetThreatsBtn = document.getElementById('reset-threats-btn');
-
-            function initializeRiskMatrixChart() {
-                const ctx = document.getElementById('riskMatrixChart').getContext('2d');
-                riskMatrixChart = new Chart(ctx, {
-                    type: 'bubble',
-                    data: {
-                        labels: [],
-                        datasets: [{
-                            label: 'Ancaman',
-                            data: [],
-                            backgroundColor: 'rgba(0, 180, 216, 0.6)',
-                            borderColor: 'rgba(0, 119, 182, 1)',
-                            borderWidth: 2
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            x: {
-                                title: { display: true, text: 'Kebarangkalian ➔', font: { size: 14, weight: 'bold' }, color: '#0077B6' },
-                                min: 0,
-                                max: 5,
-                                grid: { color: '#ADE8F4' }
-                            },
-                            y: {
-                                title: { display: true, text: 'Purata Kesan ➔', font: { size: 14, weight: 'bold' }, color: '#0077B6' },
-                                min: 0,
-                                max: 5,
-                                grid: { color: '#ADE8F4' }
-                            }
-                        },
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                callbacks: {
-                                    title: function(tooltipItems) {
-                                        const item = tooltipItems[0];
-                                        let label = item.chart.data.labels[item.dataIndex];
-                                        if (Array.isArray(label)) {
-                                          return label.join(' ');
-                                        } else {
-                                          return label;
-                                        }
-                                    },
-                                    label: function(context) {
-                                        const raw = context.raw;
-                                        return ` (Kebarangkalian: ${raw.x}, Kesan: ${raw.y})`;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-            }
 
             // FUNGSI UNTUK MENGEMAS KINI UI TAB 1 SAHAJA
             function updateThreatTableUI() {
@@ -607,7 +651,7 @@
                 const impactInfra = parseFloat(document.getElementById('threat-impact-infra').value);
                 
                 const avgImpact = (impactHealth + impactInfra) / 2;
-                const totalScore = likelihood * avgImpact; // Changed to multiplication for total risk score
+                const totalScore = likelihood * avgImpact; // Skor Risiko = Kebarangkalian x Purata Kesan
 
                 // Tambah data ancaman ke array lokal
                 threats.push({ 
@@ -628,48 +672,10 @@
                 handleThreatsUpdate(); // Ini akan mengosongkan jadual, carta, dan data Firestore
             });
 
-            // --- Logik Alat 2: Analisis Jurang ---
+            // --- 7. Logik Alat 2: Analisis Jurang ---
             const resourceForm = document.getElementById('resource-form');
             const resourceTableBody = document.getElementById('resource-table-body');
             const resetResourcesBtn = document.getElementById('reset-resources-btn');
-
-            function initializeGapChart() {
-                const ctx = document.getElementById('gapAnalysisChart').getContext('2d');
-                gapAnalysisChart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: [],
-                        datasets: [
-                            {
-                                label: 'Sedia Ada',
-                                data: [],
-                                backgroundColor: 'rgba(0, 119, 182, 0.8)', // Dark Blue
-                            },
-                            {
-                                label: 'Diperlukan',
-                                data: [],
-                                backgroundColor: 'rgba(173, 232, 244, 0.8)', // Light Blue
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: true, grid: { color: '#ADE8F4' } },
-                            x: { grid: { display: false } }
-                        },
-                        plugins: {
-                            legend: { position: 'top' },
-                            tooltip: {
-                                callbacks: {
-                                    title: tooltipCallbackTitle
-                                }
-                            }
-                        }
-                    }
-                });
-            }
 
             function processLabel(label) {
                 if (label.length > 16) {
@@ -757,7 +763,6 @@
                 handleResourcesUpdate(); // Ini akan mengosongkan jadual, carta, dan data Firestore
             });
             
-            // Inisialisasi tidak lagi diperlukan di sini kerana ia dipanggil dalam loadPersistentData atau fallback
         });
     </script>
 </body>
