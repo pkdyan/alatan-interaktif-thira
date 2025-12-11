@@ -106,6 +106,29 @@
                 text-align: center;
             }
         }
+
+        /* Gaya Modal Khusus */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto; /* 15% dari atas dan berpusat */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 90%;
+            max-width: 400px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
     </style>
 </head>
 <body class="font-sans" style="color: #03045E; background-color: #CAF0F8;">
@@ -181,6 +204,8 @@
                             <button type="submit" class="font-semibold text-white px-6 py-2 rounded-lg" style="background-color: #0077B6; hover:background-color: #00B4D8;">Tambah ke Matriks</button>
                         </div>
                     </form>
+                    
+                    <!-- Ruang ini dahulu tempat Import/Export, kini dibuang -->
                 </div>
 
                 <!-- Step 1-2: Chart -->
@@ -284,32 +309,77 @@
 
     </main>
 
+    <!-- Modal for Custom Alert/Confirm -->
+    <div id="customModal" class="modal">
+        <div class="modal-content">
+            <h4 id="modalTitle" class="text-xl font-bold mb-3" style="color: #0077B6;">Makluman</h4>
+            <p id="modalMessage" class="mb-4 text-gray-700"></p>
+            <div class="flex justify-end space-x-3">
+                <button id="modalCancelBtn" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400" style="display:none;">Batal</button>
+                <button id="modalConfirmBtn" class="px-4 py-2 bg-green-500 text-white rounded-lg font-semibold hover:bg-green-600">OK</button>
+            </div>
+        </div>
+    </div>
+
+
     <!-- Footer -->
     <footer class="text-center p-6 mt-8 no-print">
         <p class="text-sm" style="color: #0077B6;">Hakcipta Pejabat Kesihatan Daerah Yan &copy; 2025</p>
     </footer>
 
     <script type="module">
-        // --- FIREBASE IMPORTS (PENTING UNTUK SIMPANAN KEKAL) ---
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Global variables for Canvas environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
-        // Pembolehubah Global untuk Firebase dan Data
-        let db;
-        let auth;
-        let userId = null;
-        let isAuthReady = false;
-
         let threats = []; // Data Ancaman (Matriks Risiko)
         let resources = []; // Data Sumber (Analisis Jurang)
         let riskMatrixChart;
         let gapAnalysisChart;
+
+        // --- FUNGSI MODAL KASTOM (Ganti alert/confirm) ---
+        // Global references
+        const customModal = document.getElementById('customModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalCancelBtn = document.getElementById('modalCancelBtn');
+        const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+
+        function showModal(title, message, isConfirm = false) {
+            return new Promise(resolve => {
+                modalTitle.textContent = title;
+                modalMessage.textContent = message;
+                customModal.style.display = 'block';
+
+                // Reset event listeners
+                modalConfirmBtn.onclick = null;
+                modalCancelBtn.onclick = null;
+
+                if (isConfirm) {
+                    modalCancelBtn.style.display = 'inline-block';
+                    modalConfirmBtn.textContent = 'Sahkan';
+                    modalConfirmBtn.style.backgroundColor = '#EF4444'; // Red-500 for delete
+                    modalConfirmBtn.style.hover = 'background-color: #DC2626';
+
+                    modalConfirmBtn.onclick = () => {
+                        customModal.style.display = 'none';
+                        resolve(true);
+                    };
+                    modalCancelBtn.onclick = () => {
+                        customModal.style.display = 'none';
+                        resolve(false);
+                    };
+                } else {
+                    modalCancelBtn.style.display = 'none';
+                    modalConfirmBtn.textContent = 'OK';
+                    modalConfirmBtn.style.backgroundColor = '#10B981'; // Green-500 for OK
+                    modalConfirmBtn.style.hover = 'background-color: #059669';
+                    
+                    modalConfirmBtn.onclick = () => {
+                        customModal.style.display = 'none';
+                        resolve(true);
+                    };
+                }
+            });
+        }
+
 
         // --- FUNGSI CHART INIALIZATION (Mesti diinisialisasi sekali) ---
         function initializeRiskMatrixChart() {
@@ -413,124 +483,175 @@
             });
         }
 
+        // --- FUNGSI UNTUK MENGEMAS KINI UI TAB 1 SAHAJA ---
+        function updateThreatTableUI() {
+            const threatTableBody = document.getElementById('threat-table-body');
+            
+            threatTableBody.innerHTML = '';
+            
+            // Pastikan carta telah diinisialisasi
+            if (!riskMatrixChart) return;
+
+            // Isih ancaman berdasarkan SKOR AKHIR, tertinggi dahulu
+            threats.sort((a, b) => b.totalScore - a.totalScore);
+            
+            riskMatrixChart.data.labels = [];
+            const chartData = [];
+
+            threats.forEach(threat => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="py-2 px-4 border-b">${threat.name}</td>
+                    <td class="py-2 px-4 border-b text-center">${parseFloat(threat.likelihood).toFixed(1)}</td>
+                    <td class="py-2 px-4 border-b text-center">${parseFloat(threat.avgImpact).toFixed(1)}</td>
+                    <td class="py-2 px-4 border-b text-center font-bold" style="color: #0077B6;">${parseFloat(threat.totalScore).toFixed(1)}</td>
+                `;
+                threatTableBody.appendChild(row);
+                
+                // Sediakan data untuk carta
+                let label = threat.name;
+                if (label.length > 16) {
+                    label = [label.substring(0, 16) + '...']; 
+                }
+                riskMatrixChart.data.labels.push(label);
+                chartData.push({
+                    x: parseFloat(threat.likelihood),
+                    y: parseFloat(threat.avgImpact),
+                    r: parseFloat(threat.totalScore) * 2 // Saiz gelembung berdasarkan skor
+                });
+            });
+            
+            riskMatrixChart.data.datasets[0].data = chartData;
+            riskMatrixChart.update();
+        }
+
+        // FUNGSI UNTUK MENGEMAS KINI UI TAB 2 SAHAJA
+        function updateResourceTableUI() {
+            const resourceTableBody = document.getElementById('resource-table-body');
+            
+            resourceTableBody.innerHTML = '';
+            
+            // Pastikan carta telah diinisialisasi
+            if (!gapAnalysisChart) return;
+
+            const chartLabels = [];
+            const chartDataNeeded = [];
+            const chartDataAvailable = [];
+
+            resources.forEach(res => {
+                const needed = parseInt(res.needed) || 0;
+                const available = parseInt(res.available) || 0;
+                const gap = needed - available;
+                let statusClass = '';
+                let statusText = '';
+
+                if (gap > 0) {
+                    statusClass = 'text-red-600 font-bold';
+                    statusText = `Kurang ${gap}`;
+                } else {
+                    statusClass = 'text-green-600 font-bold';
+                    statusText = `Mencukupi (${Math.abs(gap)} lebihan)`;
+                }
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="py-2 px-4 border-b">${res.name}</td>
+                    <td class="py-2 px-4 border-b text-center">${needed}</td>
+                    <td class="py-2 px-4 border-b text-center">${available}</td>
+                    <td class="py-2 px-4 border-b text-center ${statusClass}">${gap}</td>
+                    <td class="py-2 px-4 border-b text-center ${statusClass}">${statusText}</td>
+                `;
+                resourceTableBody.appendChild(row);
+
+                chartLabels.push(processLabel(res.name));
+                chartDataNeeded.push(needed);
+                chartDataAvailable.push(available);
+            });
+
+            gapAnalysisChart.data.labels = chartLabels;
+            gapAnalysisChart.data.datasets[0].data = chartDataAvailable;
+            gapAnalysisChart.data.datasets[1].data = chartDataNeeded;
+            gapAnalysisChart.update();
+        }
+
+        function processLabel(label) {
+            if (label.length > 16) {
+                const words = label.split(' ');
+                let lines = [];
+                let currentLine = '';
+                for (const word of words) {
+                    if ((currentLine + word).length > 16) {
+                        lines.push(currentLine.trim());
+                        currentLine = word + ' ';
+                    } else {
+                        currentLine += word + ' ';
+                    }
+                }
+                lines.push(currentLine.trim());
+                return lines;
+            }
+            return label;
+        }
+
+        // --- FUNGSI SIMPAN/MUAT LOKAL (localStorage) ---
+
+        function saveData() {
+            // Simpan kedua-dua set data dalam localStorage
+            localStorage.setItem('thira_threats', JSON.stringify(threats));
+            localStorage.setItem('thira_resources', JSON.stringify(resources));
+            console.log("Data disimpan secara automatik ke local storage.");
+        }
+
+        function loadData() {
+            // Muat semula data ancaman
+            const storedThreats = localStorage.getItem('thira_threats');
+            if (storedThreats) {
+                try {
+                    // Hanya parse data, biarkan UI update di luar
+                    threats = JSON.parse(storedThreats);
+                } catch (e) {
+                    console.error("Ralat memuatkan data ancaman dari storage:", e);
+                    threats = [];
+                }
+            }
+            // Panggil fungsi kemas kini UI selepas fungsi ditakrifkan
+            updateThreatTableUI(); 
+
+            // Muat semula data sumber
+            const storedResources = localStorage.getItem('thira_resources');
+            if (storedResources) {
+                try {
+                    // Hanya parse data, biarkan UI update di luar
+                    resources = JSON.parse(storedResources);
+                } catch (e) {
+                    console.error("Ralat memuatkan data sumber dari storage:", e);
+                    resources = [];
+                }
+            }
+            // Panggil fungsi kemas kini UI selepas fungsi ditakrifkan
+            updateResourceTableUI(); 
+        }
+
+        // --- FUNGSI IMPORT/EXPORT (Kini Dibuang) ---
+
+        // Fungsi-fungsi ini dikekalkan sebagai placeholder kosong sekiranya diperlukan, tetapi tidak dipanggil
+        function exportDataAsJson() {
+            showModal('Makluman', 'Fungsi Export telah dibuang atas permintaan pengguna.');
+        }
+
+        async function importDataFromJson(file) {
+            await showModal('Makluman', 'Fungsi Import telah dibuang atas permintaan pengguna.');
+        }
+        
         document.addEventListener('DOMContentLoaded', () => {
             
-            // --- 1. INISIALISASI CARTA (Dijalankan sekali di awal) ---
-            // Ini memastikan objek chart wujud sebelum user cuba tukar ke view carta
+            // --- 1. INISIALISASI CARTA & MUAT DATA LOKAL ---
             initializeRiskMatrixChart();
             initializeGapChart();
+            loadData(); // Panggil loadData dari localStorage
+
             
-            // --- 2. FIREBASE INITIALIZATION AND AUTHENTICATION ---
-            if (Object.keys(firebaseConfig).length > 0) {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                // Authentication Listener
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        isAuthReady = true;
-                        console.log("User authenticated. User ID:", userId);
-                        // Mulakan pemuatan data kekal sebaik sahaja pengesahan selesai
-                        loadPersistentData(); 
-                    } else {
-                        try {
-                            // Cuba sign in dengan token, atau secara tanpa nama
-                            if (initialAuthToken) {
-                                await signInWithCustomToken(auth, initialAuthToken);
-                            } else {
-                                await signInAnonymously(auth);
-                            }
-                        } catch (error) {
-                            console.error("Firebase Auth failed:", error);
-                            // Fallback: Teruskan tanpa simpanan kekal jika pengesahan gagal
-                            isAuthReady = true;
-                            // Carta sudah diinisialisasi di luar.
-                        }
-                    }
-                });
-            } else {
-                 // Fallback jika tiada config Firebase disediakan
-                isAuthReady = true;
-                // Carta sudah diinisialisasi di luar.
-            }
-
-            // --- 3. Persistent Data Management (Firestore) ---
-
-            // Helpers untuk mendapatkan rujukan dokumen Firestore
-            function getThreatsDocRef(uid) {
-                // Path: /artifacts/{appId}/users/{userId}/thira_threats/current_session
-                return doc(db, 'artifacts', appId, 'users', uid, 'thira_threats', 'current_session');
-            }
-            function getResourcesDocRef(uid) {
-                // Path: /artifacts/{appId}/users/{userId}/thira_resources/current_session
-                return doc(db, 'artifacts', appId, 'users', uid, 'thira_resources', 'current_session');
-            }
-
-            // FUNGSI SIMPAN (SAVE)
-            async function saveThreatsToFirestore() {
-                if (!isAuthReady || !userId || !db) return;
-                try {
-                    // Simpan keseluruhan array threats
-                    await setDoc(getThreatsDocRef(userId), { data: threats });
-                } catch (error) {
-                    console.error("Error saving threats to Firestore (cubaan semula):", error);
-                    // Implement exponential backoff for retries if needed in production
-                }
-            }
-            
-            async function saveResourcesToFirestore() {
-                if (!isAuthReady || !userId || !db) return;
-                try {
-                    // Simpan keseluruhan array resources
-                    await setDoc(getResourcesDocRef(userId), { data: resources });
-                } catch (error) {
-                    console.error("Error saving resources to Firestore (cubaan semula):", error);
-                    // Implement exponential backoff for retries if needed in production
-                }
-            }
-
-            // FUNGSI MUAT (LOAD) - Menggunakan onSnapshot untuk data real-time
-            function loadPersistentData() {
-                if (!isAuthReady || !userId || !db) return;
-
-                // 1. Listener untuk Data Ancaman (Tab 1)
-                onSnapshot(getThreatsDocRef(userId), (doc) => {
-                    if (doc.exists()) {
-                        const data = doc.data().data;
-                        if (Array.isArray(data)) {
-                            threats = data;
-                            console.log(`Threats data loaded from Firestore (${threats.length} items).`);
-                            updateThreatTableUI(); // Kemas kini UI dengan data yang dimuatkan
-                        }
-                    } else {
-                        console.log("Tiada data ancaman sedia ada ditemui. Memulakan sesi baharu.");
-                        updateThreatTableUI(); // Kosongkan UI jika tiada data
-                    }
-                }, (error) => {
-                    console.error("Error listening to threats data:", error);
-                });
-                
-                // 2. Listener untuk Data Sumber (Tab 2)
-                onSnapshot(getResourcesDocRef(userId), (doc) => {
-                    if (doc.exists()) {
-                        const data = doc.data().data;
-                        if (Array.isArray(data)) {
-                            resources = data;
-                            console.log(`Resources data loaded from Firestore (${resources.length} items).`);
-                            updateResourceTableUI(); // Kemas kini UI dengan data yang dimuatkan
-                        }
-                    } else {
-                        console.log("Tiada data sumber sedia ada ditemui. Memulakan sesi baharu.");
-                        updateResourceTableUI(); // Kosongkan UI jika tiada data
-                    }
-                }, (error) => {
-                    console.error("Error listening to resources data:", error);
-                });
-            }
-            
-            // --- 4. Logik Tab ---
+            // --- 2. Logik Tab & Stepper ---
             const tabButtons = document.querySelectorAll('.tab-btn');
             const tabContents = document.querySelectorAll('.tab-content');
 
@@ -551,7 +672,6 @@
                 });
             });
             
-            // --- 5. Logik Stepper Baharu ---
             const stepButtons = document.querySelectorAll('.step-nav-btn');
             
             stepButtons.forEach(button => {
@@ -559,16 +679,12 @@
                     const tabId = button.getAttribute('data-tab');
                     const stepId = button.getAttribute('data-step');
 
-                    // Hanya kendalikan butang dalam tab yang sedang aktif
                     if (document.getElementById(`tab-content-${tabId}`).classList.contains('active')) {
-                        
-                        // 1. Kemas kini butang stepper
                         document.querySelectorAll(`.step-nav-btn[data-tab="${tabId}"]`).forEach(btn => {
                             btn.classList.remove('active');
                         });
                         button.classList.add('active');
 
-                        // 2. Tunjuk/Sembunyi halaman langkah
                         document.querySelectorAll(`.step-page[id^="step-page-${tabId}-"]`).forEach(page => {
                             page.classList.remove('active');
                         });
@@ -584,63 +700,15 @@
                 window.print();
             });
 
-            // --- Logik Umum Tooltip Chart.js ---
-            const tooltipCallbackTitle = function(tooltipItems) {
-                const item = tooltipItems[0];
-                let label = item.chart.data.labels[item.dataIndex];
-                if (Array.isArray(label)) {
-                    return label.join(' ');
-                } else {
-                    return label;
-                }
-            };
-
-            // --- 6. Logik Alat 1: Matriks Risiko ---
+            // --- 3. Logik Alat 1: Matriks Risiko ---
             const threatForm = document.getElementById('threat-form');
-            const threatTableBody = document.getElementById('threat-table-body');
             const resetThreatsBtn = document.getElementById('reset-threats-btn');
 
-            // FUNGSI UNTUK MENGEMAS KINI UI TAB 1 SAHAJA
-            function updateThreatTableUI() {
-                threatTableBody.innerHTML = '';
-                
-                // Isih ancaman berdasarkan SKOR AKHIR, tertinggi dahulu
-                threats.sort((a, b) => b.totalScore - a.totalScore);
-                
-                riskMatrixChart.data.labels = [];
-                const chartData = [];
-
-                threats.forEach(threat => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td class="py-2 px-4 border-b">${threat.name}</td>
-                        <td class="py-2 px-4 border-b text-center">${threat.likelihood.toFixed(1)}</td>
-                        <td class="py-2 px-4 border-b text-center">${threat.avgImpact.toFixed(1)}</td>
-                        <td class="py-2 px-4 border-b text-center font-bold" style="color: #0077B6;">${threat.totalScore.toFixed(1)}</td>
-                    `;
-                    threatTableBody.appendChild(row);
-                    
-                    // Sediakan data untuk carta
-                    let label = threat.name;
-                    if (label.length > 16) {
-                        label = [label.substring(0, 16) + '...']; 
-                    }
-                    riskMatrixChart.data.labels.push(label);
-                    chartData.push({
-                        x: threat.likelihood,
-                        y: threat.avgImpact,
-                        r: threat.totalScore * 2 // Saiz gelembung berdasarkan skor
-                    });
-                });
-                
-                riskMatrixChart.data.datasets[0].data = chartData;
-                riskMatrixChart.update();
-            }
 
             // FUNGSI UNTUK MENGEMAS KINI DATA LOKAL DAN TRIGGE SIMPANAN
             function handleThreatsUpdate() {
                 updateThreatTableUI();
-                saveThreatsToFirestore(); // Trigger save to Firestore
+                saveData(); // Panggil fungsi simpan ke localStorage
             }
 
             threatForm.addEventListener('submit', (e) => {
@@ -653,96 +721,35 @@
                 const avgImpact = (impactHealth + impactInfra) / 2;
                 const totalScore = likelihood * avgImpact; // Skor Risiko = Kebarangkalian x Purata Kesan
 
-                // Tambah data ancaman ke array lokal
                 threats.push({ 
                     name, 
                     likelihood, 
                     impactHealth, 
                     impactInfra, 
                     avgImpact, 
-                    totalScore // Simpan semua data untuk keutuhan
+                    totalScore 
                 });
                 handleThreatsUpdate();
                 threatForm.reset();
             });
 
             // Listener untuk butang reset ancaman
-            resetThreatsBtn.addEventListener('click', () => {
-                threats = [];
-                handleThreatsUpdate(); // Ini akan mengosongkan jadual, carta, dan data Firestore
+            resetThreatsBtn.addEventListener('click', async () => {
+                const isConfirmed = await showModal('Padam Data Ancaman', 'Adakah anda pasti mahu memadamkan SEMUA data ancaman? Tindakan ini tidak boleh diundur.', true);
+                if(isConfirmed){
+                    threats = [];
+                    handleThreatsUpdate(); // Ini akan mengosongkan jadual, carta, dan data local storage
+                }
             });
 
-            // --- 7. Logik Alat 2: Analisis Jurang ---
+            // --- 4. Logik Alat 2: Analisis Jurang ---
             const resourceForm = document.getElementById('resource-form');
-            const resourceTableBody = document.getElementById('resource-table-body');
             const resetResourcesBtn = document.getElementById('reset-resources-btn');
-
-            function processLabel(label) {
-                if (label.length > 16) {
-                    const words = label.split(' ');
-                    let lines = [];
-                    let currentLine = '';
-                    for (const word of words) {
-                        if ((currentLine + word).length > 16) {
-                            lines.push(currentLine.trim());
-                            currentLine = word + ' ';
-                        } else {
-                            currentLine += word + ' ';
-                        }
-                    }
-                    lines.push(currentLine.trim());
-                    return lines;
-                }
-                return label;
-            }
-
-            // FUNGSI UNTUK MENGEMAS KINI UI TAB 2 SAHAJA
-            function updateResourceTableUI() {
-                resourceTableBody.innerHTML = '';
-                
-                // Sediakan data untuk carta
-                const chartLabels = [];
-                const chartDataNeeded = [];
-                const chartDataAvailable = [];
-
-                resources.forEach(res => {
-                    const gap = res.needed - res.available;
-                    let statusClass = '';
-                    let statusText = '';
-
-                    if (gap > 0) {
-                        statusClass = 'text-red-600 font-bold';
-                        statusText = `Kurang ${gap}`;
-                    } else {
-                        statusClass = 'text-green-600 font-bold';
-                        statusText = `Mencukupi (${Math.abs(gap)} lebihan)`;
-                    }
-
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td class="py-2 px-4 border-b">${res.name}</td>
-                        <td class="py-2 px-4 border-b text-center">${res.needed}</td>
-                        <td class="py-2 px-4 border-b text-center">${res.available}</td>
-                        <td class="py-2 px-4 border-b text-center ${statusClass}">${gap}</td>
-                        <td class="py-2 px-4 border-b text-center ${statusClass}">${statusText}</td>
-                    `;
-                    resourceTableBody.appendChild(row);
-
-                    chartLabels.push(processLabel(res.name));
-                    chartDataNeeded.push(res.needed);
-                    chartDataAvailable.push(res.available);
-                });
-
-                gapAnalysisChart.data.labels = chartLabels;
-                gapAnalysisChart.data.datasets[0].data = chartDataAvailable;
-                gapAnalysisChart.data.datasets[1].data = chartDataNeeded;
-                gapAnalysisChart.update();
-            }
 
             // FUNGSI UNTUK MENGEMAS KINI DATA LOKAL DAN TRIGGER SIMPANAN
             function handleResourcesUpdate() {
                 updateResourceTableUI();
-                saveResourcesToFirestore(); // Trigger save to Firestore
+                saveData(); // Panggil fungsi simpan ke localStorage
             }
 
             resourceForm.addEventListener('submit', (e) => {
@@ -751,17 +758,22 @@
                 const needed = parseInt(document.getElementById('resource-needed').value);
                 const available = parseInt(document.getElementById('resource-available').value);
 
-                // Tambah data sumber ke array lokal
                 resources.push({ name, needed, available });
                 handleResourcesUpdate();
                 resourceForm.reset();
             });
 
             // Listener untuk butang reset sumber
-            resetResourcesBtn.addEventListener('click', () => {
-                resources = [];
-                handleResourcesUpdate(); // Ini akan mengosongkan jadual, carta, dan data Firestore
+            resetResourcesBtn.addEventListener('click', async () => {
+                const isConfirmed = await showModal('Padam Data Sumber', 'Adakah anda pasti mahu memadamkan SEMUA data sumber? Tindakan ini tidak boleh diundur.', true);
+                if(isConfirmed){
+                    resources = [];
+                    handleResourcesUpdate(); // Ini akan mengosongkan jadual, carta, dan data local storage
+                }
             });
+            
+            // --- 5. Event Listeners Import/Export (Dibuang) ---
+            // Kod Import/Export telah dibuang dari sini
             
         });
     </script>
